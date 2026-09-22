@@ -1,4 +1,4 @@
-"""Pull 2026 regular-season betting lines from CollegeFootballData (weeks 1-15)."""
+"""Pull 2026 regular-season betting lines from CollegeFootballData (weeks 1-4)."""
 
 import os
 import sys
@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 BASE_URL = "https://api.collegefootballdata.com/lines"
 YEAR = 2026
 SEASON_TYPE = "regular"
-WEEKS = range(1, 16)
+WEEKS = range(1, 5)
 SLEEP_SECONDS = 0.5
 TIMEOUT_SECONDS = 30
 
