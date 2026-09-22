@@ -96,11 +96,12 @@ Other conventions:
 
 ## Current state (as of 2026-09-22 build)
 
-| season | fixtures | finished | fetched | player_match rows | appeared |
-|---|---|---|---|---|---|
-| 2024-25 | 380 | 380 | 380 | 15,188 | 11,567 |
-| 2025-26 | 380 | 380 | 380 | 15,189 | 11,492 |
-| 2026-27 | 380 | 50 | 50 | 1,999 | 1,538 |
+| season | fixtures | finished | fetched | player_match rows | player appearances | unique players |
+|---|---|---|---|---|---|---|
+| 2024-25 | 380 | 380 | 380 | 15,188 | 11,567 | 562 |
+| 2025-26 | 380 | 380 | 380 | 15,189 | 11,492 | 537 |
+| 2026-27 | 380 | 50 | 50 | 1,999 | 1,538 | 421 |
+| all seasons | | 810 | 810 | 32,376 | 24,597 | 862 |
 
 Cross-check (24 matches, 8 per season): 718/718 comparable player rows have exact passes_attempted matches, with 0 disagreements > 3. Every team-match's summed player passes equals FotMob's own team pass total (1,620/1,620). Details are in `reports/data_quality.md`.
 

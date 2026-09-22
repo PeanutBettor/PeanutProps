@@ -20,17 +20,18 @@ Latest raw fetch in DB: 2026-09-22 21:45:30 UTC
 Finished matches with no player rows: **0**
 
 
-Row counts (player_match, primary source; `appeared` excludes unused subs):
+Row counts (player_match, primary source). `player appearances` counts player-match rows where the player started or came on (unused subs excluded); `unique players` counts distinct players with at least one appearance; `players in squads` also includes unused subs.
 
-| season | rows | appeared | distinct players |
-|---|---|---|---|
-| 2024-25 | 15188 | 11567 | 685 |
-| 2025-26 | 15189 | 11492 | 678 |
-| 2026-27 | 1999 | 1538 | 502 |
+| season | rows | player appearances | unique players | players in squads |
+|---|---|---|---|---|
+| 2024-25 | 15188 | 11567 | 562 | 685 |
+| 2025-26 | 15189 | 11492 | 537 | 678 |
+| 2026-27 | 1999 | 1538 | 421 | 502 |
+| all seasons | 32376 | 24597 | 862 | 1089 |
 
 ## 2. NULL passes_attempted / minutes_played (with reason codes)
 
-| season | null_reasons | appeared | rows |
+| season | null_reasons | appeared in match | rows |
 |---|---|---|---|
 | 2024-25 | minutes_played:unused_sub;passes_attempted:unused_sub;passes_completed:unused_sub;subbed_off_minute:unused_sub;subbed_on_minute:unused_sub | False | 3621 |
 | 2025-26 | minutes_played:unused_sub;passes_attempted:unused_sub;passes_completed:unused_sub;subbed_off_minute:unused_sub;subbed_on_minute:unused_sub | False | 3697 |
@@ -432,9 +433,9 @@ Flagged (< 200 or > 900): **5**
 
 | season | match_id | team | sum passes_att | appeared rows w/ NULL |
 |---|---|---|---|---|
+| 2024-25 | 4506376 | Everton | 189 | 0 |
 | 2024-25 | 4506267 | Newcastle United | 181 | 0 |
 | 2025-26 | 4813387 | Brentford | 178 | 0 |
-| 2024-25 | 4506376 | Everton | 189 | 0 |
 | 2024-25 | 4506559 | Ipswich Town | 185 | 0 |
 | 2025-26 | 4813408 | Burnley | 168 | 0 |
 
@@ -453,9 +454,9 @@ Minutes agree exactly on 725/727 rows (reported for information; FotMob and the 
 | exact | name_exact | 177 |
 | null_in_one | opta_id | 7 |
 | exact | name_lastname | 3 |
-| null_in_one | name_exact | 2 |
 | missing_in_other | opta_id | 2 |
 | missing_in_primary | unresolved | 2 |
+| null_in_one | name_exact | 2 |
 
 Join: Opta player id. The PL feed omits Opta ids for some 2024-25 fixtures, so those rows fall back to an exact accent-insensitive name match (same side), then a unique last-name match. Names that still don't match are left unmatched (`unresolved`), not guessed. `null_in_one` means one source has the stat and the other doesn't. The PL feed drops zero-valued stats, so FotMob `0` vs PL absent is expected there.
 

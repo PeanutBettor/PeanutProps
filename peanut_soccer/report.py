@@ -50,13 +50,13 @@ def build(con, primary: str = "fotmob", other: str = "premierleague", seed: int 
     L += ["", f"Finished matches with no player rows: **{len(missing)}**", ""]
     if missing:
         L.append(_table(["season", "match_id", "date", "home", "away"], missing))
-    rc = con.execute(f"""
-        SELECT m.season, count(*) AS rows, count(*) FILTER (WHERE {APPEARED}) AS appeared,
-               count(DISTINCT player_id) AS players
-        FROM player_match pm JOIN matches m USING (match_id, source) WHERE pm.source=? GROUP BY 1 ORDER BY 1""",
-                    [primary]).fetchall()
-    L += ["", "Row counts (player_match, primary source; `appeared` excludes unused subs):", "",
-          _table(["season", "rows", "appeared", "distinct players"], rc), ""]
+    rc = row_counts(con, primary)
+    L += ["", "Row counts (player_match, primary source). `player appearances` counts player-match rows where "
+          "the player started or came on (unused subs excluded); `unique players` counts distinct players "
+          "with at least one appearance; `players in squads` also includes unused subs.", "",
+          _table(["season", "rows", "player appearances", "unique players", "players in squads"],
+                 [(r["season"], r["rows"], r["appearances"], r["unique_players"], r["squad_players"]) for r in rc]),
+          ""]
 
     # 2. NULLs
     L += ["## 2. NULL passes_attempted / minutes_played (with reason codes)", ""]
@@ -65,7 +65,7 @@ def build(con, primary: str = "fotmob", other: str = "premierleague", seed: int 
         JOIN matches m USING (match_id, source)
         WHERE pm.source=? AND (passes_attempted IS NULL OR minutes_played IS NULL)
         GROUP BY ALL ORDER BY 1, 4 DESC""", [primary]).fetchall()
-    L.append(_table(["season", "null_reasons", "appeared", "rows"], nulls))
+    L.append(_table(["season", "null_reasons", "appeared in match", "rows"], nulls))
     bad = con.execute(f"""
         SELECT pm.match_id, pm.player_name, pm.team, pm.minutes_played, pm.passes_attempted, pm.null_reasons
         FROM player_match pm WHERE pm.source=? AND {APPEARED}
@@ -183,6 +183,21 @@ def build(con, primary: str = "fotmob", other: str = "premierleague", seed: int 
         L += [f"{n:18s} {v}" for n, v in zip(names, r)]
         L += ["```", ""]
     return "\n".join(L)
+
+
+def row_counts(con, primary: str = "fotmob") -> list[dict]:
+    """Per-season and all-seasons counts. Appearances and unique players are different things:
+    a player who plays 30 matches is 30 appearances but 1 unique player."""
+    q = f"""
+        SELECT {{grp}} AS season, count(*) AS rows,
+               count(*) FILTER (WHERE {APPEARED}) AS appearances,
+               count(DISTINCT player_id) FILTER (WHERE {APPEARED}) AS unique_players,
+               count(DISTINCT player_id) AS squad_players
+        FROM player_match pm JOIN matches m USING (match_id, source) WHERE pm.source=? {{group_by}}"""
+    cols = ["season", "rows", "appearances", "unique_players", "squad_players"]
+    per = con.execute(q.format(grp="m.season", group_by="GROUP BY 1 ORDER BY 1"), [primary]).fetchall()
+    tot = con.execute(q.format(grp="'all seasons'", group_by=""), [primary]).fetchall()
+    return [dict(zip(cols, r)) for r in per + [t for t in tot if t[1]]]
 
 
 def _fotmob_team_total_check(con, raw_dir: Path) -> dict:
