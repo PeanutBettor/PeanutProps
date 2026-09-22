@@ -1,0 +1,18 @@
+# virtualenv
+.venv/
+venv/
+
+# raw response cache (rebuildable via backfill)
+raw/
+
+# database
+data/*.duckdb
+data/*.duckdb.wal
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# logs
+logs/
