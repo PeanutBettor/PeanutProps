@@ -22,7 +22,7 @@ from typing import Optional
 
 from .base import (
     IncompleteData, MatchRecord, PlayerMatchRecord, SourceAdapter,
-    R_FIELD_ABSENT, R_NO_POSITION, R_NOT_SUBBED_OFF, R_NOT_SUBBED_ON, R_STATS_MISSING, R_UNUSED_SUB,
+    R_FIELD_ABSENT, R_NO_POSITION, R_NOT_SUBBED_OFF, R_NOT_SUBBED_ON, R_STATS_MISSING, R_UNKNOWN_CARD, R_UNUSED_SUB,
 )
 
 log = logging.getLogger("peanut_soccer.premierleague")
@@ -30,6 +30,10 @@ log = logging.getLogger("peanut_soccer.premierleague")
 BASE = "https://footballapi.pulselive.com/football"
 HEADERS = {"Origin": "https://www.premierleague.com", "Referer": "https://www.premierleague.com/"}
 ROLE = {"G": "GK", "D": "DEF", "M": "MID", "F": "FWD"}
+# Booking ('B') event codes. 'Y' and 'R' verified on real fixtures (124791, 124792); any other code
+# (e.g. a second-yellow code) makes red_card NULL for that player until it is verified.
+YELLOW_CODES = {"Y"}
+RED_CODES = {"R"}
 STATUS = {"C": "finished", "U": "scheduled", "L": "live", "A": "abandoned", "P": "postponed"}
 
 
@@ -148,7 +152,7 @@ class PremierLeagueAdapter(SourceAdapter):
         team_name = {int(t["team"]["id"]): t["team"]["name"] for t in f["teams"]}
         home_id = int(f["teams"][0]["team"]["id"])
         events = f.get("events") or []
-        sub_on, sub_off, red = {}, {}, set()
+        sub_on, sub_off, red, unknown_card = {}, {}, set(), set()
         for e in events:
             pid = e.get("personId")
             if pid is None:
@@ -156,8 +160,13 @@ class PremierLeagueAdapter(SourceAdapter):
             pid = int(pid)
             if e.get("type") == "S":
                 (sub_on if e.get("description") == "ON" else sub_off).setdefault(pid, _minute(e.get("clock")))
-            elif e.get("type") == "B" and e.get("description") in ("R", "YR", "RC", "Y2"):
-                red.add(pid)
+            elif e.get("type") == "B":
+                code = e.get("description")
+                if code in RED_CODES:
+                    red.add(pid)
+                elif code not in YELLOW_CODES:
+                    log.warning("unrecognized PL booking code %r for player %s", code, pid)
+                    unknown_card.add(pid)
 
         rows = []
         for tl in f["teamLists"]:
@@ -195,13 +204,20 @@ class PremierLeagueAdapter(SourceAdapter):
                         reasons["subbed_on_minute"] = R_NOT_SUBBED_ON if started else R_UNUSED_SUB
                     if off is None:
                         reasons["subbed_off_minute"] = R_NOT_SUBBED_OFF if appeared else R_UNUSED_SUB
+                    if pid in red:
+                        red_card = True
+                    elif pid in unknown_card:
+                        red_card = None
+                        reasons["red_card"] = R_UNKNOWN_CARD
+                    else:
+                        red_card = False
                     opta = (p.get("altIds") or {}).get("opta")
                     rows.append(PlayerMatchRecord(
                         match_id=match.match_id, source=self.name, player_id=str(pid),
                         player_name=(p.get("name") or {}).get("display", ""),
                         team=team_name[tid], opponent=opp, is_home=is_home, position=role, started=started,
                         minutes_played=minutes, passes_attempted=att, passes_completed=comp,
-                        subbed_on_minute=on, subbed_off_minute=off, red_card=pid in red,
+                        subbed_on_minute=on, subbed_off_minute=off, red_card=red_card,
                         opta_player_id=opta.lstrip("p") if opta else None, null_reasons=reasons,
                     ))
         return match, rows

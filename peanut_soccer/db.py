@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS crosscheck (
     primary_match_id   VARCHAR NOT NULL,
     other_source       VARCHAR NOT NULL,
     other_match_id     VARCHAR,
-    opta_player_id     VARCHAR NOT NULL,
+    opta_player_id     VARCHAR NOT NULL,  -- join key (Opta id, or a name key when unresolved)
     player_name        VARCHAR,
     team               VARCHAR,
     primary_passes     INTEGER,
@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS crosscheck (
     other_minutes      INTEGER,
     abs_diff           INTEGER,
     outcome            VARCHAR,   -- exact | diff | missing_in_primary | missing_in_other | null_in_one
+    join_method        VARCHAR,   -- opta_id | name_exact | name_lastname | unresolved
     checked_at         TIMESTAMP,
     PRIMARY KEY (primary_source, primary_match_id, other_source, opta_player_id)
 );

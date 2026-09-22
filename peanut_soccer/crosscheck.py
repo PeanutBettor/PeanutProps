@@ -7,6 +7,7 @@ from __future__ import annotations
 import difflib
 import logging
 import random
+import unicodedata
 from datetime import timedelta
 from typing import Optional
 
@@ -93,26 +94,59 @@ def run(con, primary: SourceAdapter, other: SourceAdapter, seasons: list[str],
     return summarize(con, primary.name, other.name) | {"sampled": len(sample), "linked": linked}
 
 
-def _appeared_opta(con, source, match_id) -> set:
-    return {r[0] for r in con.execute(
-        "SELECT opta_player_id FROM player_match WHERE source=? AND match_id=? AND opta_player_id IS NOT NULL "
-        "AND (started OR subbed_on_minute IS NOT NULL)", [source, match_id]).fetchall()}
+APPEARED_Q = ("SELECT opta_player_id, player_name, team, passes_attempted, minutes_played, is_home FROM player_match "
+              "WHERE source=? AND match_id=? AND (started OR subbed_on_minute IS NOT NULL)")
+
+
+def _name_key(name: str) -> str:
+    s = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode().lower()
+    return " ".join(s.replace("-", " ").replace(".", " ").replace("'", "").split())
+
+
+def _keyed_rows(con, ps, pid, os_, oid) -> tuple[dict, dict, dict]:
+    """Return (primary_by_key, other_by_key, join_method_by_key).
+
+    Join on Opta player id. If the other source omits the Opta id for a player (the PL feed does
+    this for some 2024-25 fixtures), fall back to an exact accent-insensitive name match on the
+    same side of the match, then to a unique last-name match. Anything else stays unmatched.
+    """
+    a_rows = con.execute(APPEARED_Q, [ps, pid]).fetchall()
+    b_rows = con.execute(APPEARED_Q, [os_, oid]).fetchall()
+    a = {r[0] or f"noopta:{ps}:{r[1]}": r for r in a_rows}
+    method = {k: "opta_id" for k in a}
+    b = {}
+    for r in b_rows:
+        if r[0]:
+            b[r[0]] = r
+            continue
+        side = [(k, x) for k, x in a.items() if x[5] == r[5]]
+        exact = [k for k, x in side if _name_key(x[1]) == _name_key(r[1])]
+        last = [k for k, x in side if _name_key(x[1]).split()[-1:] == _name_key(r[1]).split()[-1:]]
+        if len(exact) == 1 and exact[0] not in b:
+            b[exact[0]] = r
+            method[exact[0]] = "name_exact"
+        elif not exact and len(last) == 1 and last[0] not in b:
+            b[last[0]] = r
+            method[last[0]] = "name_lastname"
+        else:
+            key = f"unresolved:{os_}:{r[1]}"
+            b[key] = r
+            method[key] = "unresolved"
+    return a, b, method
 
 
 def _player_overlap(con, ps, pid, os_, oid) -> float:
-    a, b = _appeared_opta(con, ps, pid), _appeared_opta(con, os_, oid)
-    return len(a & b) / len(a | b) if (a | b) else 0.0
+    a, b, _ = _keyed_rows(con, ps, pid, os_, oid)
+    ka, kb = set(a), set(b)
+    return len(ka & kb) / len(ka | kb) if (ka | kb) else 0.0
 
 
 def _compare(con, ps, pid, os_, oid) -> None:
-    q = ("SELECT opta_player_id, player_name, team, passes_attempted, minutes_played FROM player_match "
-         "WHERE source=? AND match_id=? AND opta_player_id IS NOT NULL AND (started OR subbed_on_minute IS NOT NULL)")
-    a = {r[0]: r for r in con.execute(q, [ps, pid]).fetchall()}
-    b = {r[0]: r for r in con.execute(q, [os_, oid]).fetchall()}
+    a, b, method = _keyed_rows(con, ps, pid, os_, oid)
     now = db.utcnow()
     rows = []
-    for opta in sorted(set(a) | set(b)):
-        ra, rb = a.get(opta), b.get(opta)
+    for key in sorted(set(a) | set(b)):
+        ra, rb = a.get(key), b.get(key)
         pa, pb = (ra[3] if ra else None), (rb[3] if rb else None)
         if ra is None:
             outcome = "missing_in_primary"
@@ -123,9 +157,10 @@ def _compare(con, ps, pid, os_, oid) -> None:
         else:
             outcome = "exact" if pa == pb else "diff"
         ref = ra or rb
-        rows.append((ps, pid, os_, oid, opta, ref[1], ref[2], pa, pb, ra[4] if ra else None, rb[4] if rb else None,
-                     abs(pa - pb) if pa is not None and pb is not None else None, outcome, now))
-    con.executemany("INSERT OR REPLACE INTO crosscheck VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        rows.append((ps, pid, os_, oid, key, ref[1], ref[2], pa, pb, ra[4] if ra else None, rb[4] if rb else None,
+                     abs(pa - pb) if pa is not None and pb is not None else None, outcome,
+                     method.get(key, "opta_id"), now))
+    con.executemany("INSERT OR REPLACE INTO crosscheck VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
 
 
 def summarize(con, ps: str, os_: str) -> dict:

@@ -127,9 +127,14 @@ def build(con, primary: str = "fotmob", other: str = "premierleague", seed: int 
                  f"mean absolute difference: **{xs[3]:.3f}**.  ")
         L.append(f"Minutes agree exactly on {xs[6]}/{xs[5]} rows (reported for information; FotMob and the PL "
                  f"feed round stoppage time differently).")
-        oc = con.execute("SELECT outcome, count(*) FROM crosscheck WHERE primary_source=? AND other_source=? "
-                         "GROUP BY 1 ORDER BY 2 DESC", [primary, other]).fetchall()
-        L += ["", _table(["outcome", "rows"], oc), ""]
+        oc = con.execute("SELECT outcome, join_method, count(*) FROM crosscheck WHERE primary_source=? AND other_source=? "
+                         "GROUP BY 1, 2 ORDER BY 3 DESC", [primary, other]).fetchall()
+        L += ["", _table(["outcome", "join_method", "rows"], oc), "",
+              "Join: Opta player id. The PL feed omits Opta ids for some 2024-25 fixtures, so those rows fall back "
+              "to an exact accent-insensitive name match (same side), then a unique last-name match. Names that "
+              "still don't match are left unmatched (`unresolved`), not guessed. `null_in_one` means one source "
+              "has the stat and the other doesn't. The PL feed drops zero-valued stats, so FotMob `0` vs "
+              "PL absent is expected there.", ""]
         big = con.execute("""
             SELECT primary_match_id, other_match_id, player_name, team, primary_passes, other_passes, abs_diff,
                    primary_minutes, other_minutes
@@ -140,12 +145,14 @@ def build(con, primary: str = "fotmob", other: str = "premierleague", seed: int 
             L += ["", _table(["fotmob match", "PL fixture", "player", "team", "fotmob", "PL", "abs diff",
                               "fotmob min", "PL min"], big)]
         other_rows = con.execute("""
-            SELECT primary_match_id, other_match_id, player_name, team, outcome, primary_passes, other_passes
+            SELECT primary_match_id, other_match_id, player_name, team, outcome, join_method, primary_passes,
+                   other_passes, primary_minutes, other_minutes
             FROM crosscheck WHERE primary_source=? AND other_source=? AND outcome NOT IN ('exact','diff')""",
                                  [primary, other]).fetchall()
         if other_rows:
             L += ["", "Rows present in only one source or NULL in one:", "",
-                  _table(["fotmob match", "PL fixture", "player", "team", "outcome", "fotmob", "PL"], other_rows)]
+                  _table(["fotmob match", "PL fixture", "player", "team", "outcome", "join", "fotmob", "PL",
+                          "fotmob min", "PL min"], other_rows)]
         xr = con.execute("SELECT primary_match_id, other_match_id, method, note FROM match_xref "
                          "WHERE primary_source=? AND other_source=? AND note IS NOT NULL", [primary, other]).fetchall()
         if xr:

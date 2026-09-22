@@ -28,6 +28,7 @@ R_NOT_SUBBED_OFF = "not_subbed_off"        # subbed_off_minute for players who f
 R_NO_POSITION = "position_absent_in_source"
 R_UNPARSEABLE = "unparseable_value"
 R_STATS_MISSING = "player_stats_block_missing"
+R_UNKNOWN_CARD = "unrecognized_card_code"      # card event with a code we have not verified
 
 
 @dataclass

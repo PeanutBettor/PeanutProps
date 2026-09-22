@@ -20,7 +20,7 @@ from typing import Optional
 from .base import (
     IncompleteData, MatchRecord, PlayerMatchRecord, SourceAdapter,
     R_FIELD_ABSENT, R_NO_POSITION, R_NOT_SUBBED_OFF, R_NOT_SUBBED_ON, R_STATS_MISSING,
-    R_UNPARSEABLE, R_UNUSED_SUB,
+    R_UNKNOWN_CARD, R_UNPARSEABLE, R_UNUSED_SUB,
 )
 
 log = logging.getLogger("peanut_soccer.fotmob")
@@ -30,6 +30,9 @@ BASE = "https://www.fotmob.com/api/data"
 
 # FotMob `usualPlayingPositionId` codes (verified against lineups: GKs=0, CBs/FBs=1, CMs=2, STs=3).
 ROLE = {0: "GK", 1: "DEF", 2: "MID", 3: "FWD"}
+# Card values seen in matchFacts events across 2024-25..2026-27 raw data.
+YELLOW_CARDS = {"Yellow"}
+RED_CARDS = {"Red", "YellowRed"}
 
 
 def fotmob_season_param(season: str) -> str:
@@ -165,7 +168,7 @@ class FotMobAdapter(SourceAdapter):
         )
 
         player_stats = content.get("playerStats") or {}
-        red_ids, events_ok = self._red_cards(content)
+        red_ids, unknown_ids, events_ok = self._red_cards(content)
         lineup = content["lineup"]
         rows: list[PlayerMatchRecord] = []
         for side, is_home in (("homeTeam", True), ("awayTeam", False)):
@@ -176,25 +179,29 @@ class FotMobAdapter(SourceAdapter):
                 for p in team.get(grp) or []:
                     rows.append(self._player_row(
                         p, match_id, team_name, opp_name, is_home, started,
-                        player_stats.get(str(p["id"])), red_ids, events_ok,
+                        player_stats.get(str(p["id"])), red_ids, unknown_ids, events_ok,
                     ))
         return match, rows
 
     @staticmethod
-    def _red_cards(content: dict) -> tuple[set, bool]:
+    def _red_cards(content: dict) -> tuple[set, set, bool]:
         try:
             events = content["matchFacts"]["events"]["events"]
         except (KeyError, TypeError):
-            return set(), False
-        red = set()
+            return set(), set(), False
+        red, unknown = set(), set()
         for e in events:
             if e.get("type") == "Card":
-                card = str(e.get("card") or "")
-                if "red" in card.lower():
-                    red.add(str(e.get("playerId") or (e.get("player") or {}).get("id")))
-        return red, True
+                pid = str(e.get("playerId") or (e.get("player") or {}).get("id"))
+                card = e.get("card")
+                if card in RED_CARDS:
+                    red.add(pid)
+                elif card not in YELLOW_CARDS:
+                    log.warning("unrecognized FotMob card value %r for player %s", card, pid)
+                    unknown.add(pid)
+        return red, unknown, True
 
-    def _player_row(self, p, match_id, team, opp, is_home, started, pstats, red_ids, events_ok) -> PlayerMatchRecord:
+    def _player_row(self, p, match_id, team, opp, is_home, started, pstats, red_ids, unknown_ids, events_ok) -> PlayerMatchRecord:
         reasons: dict = {}
         perf = p.get("performance") or {}
         subs = perf.get("substitutionEvents") or []
@@ -240,8 +247,13 @@ class FotMobAdapter(SourceAdapter):
             reasons["subbed_off_minute"] = R_NOT_SUBBED_OFF if appeared else R_UNUSED_SUB
 
         red: Optional[bool]
-        if events_ok:
-            red = str(p["id"]) in red_ids
+        if str(p["id"]) in red_ids:
+            red = True
+        elif str(p["id"]) in unknown_ids:
+            red = None
+            reasons["red_card"] = R_UNKNOWN_CARD
+        elif events_ok:
+            red = False
         else:
             red = None
             reasons["red_card"] = R_FIELD_ABSENT

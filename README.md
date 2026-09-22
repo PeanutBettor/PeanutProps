@@ -85,6 +85,7 @@ A value is never defaulted. Every NULL in `player_match` has an entry in `null_r
 | `unparseable_value` | the field exists but isn't an integer |
 | `not_subbed_on` / `not_subbed_off` | structural: a starter has no sub-on minute; a player who finished has no sub-off minute |
 | `position_absent_in_source` | no position code |
+| `unrecognized_card_code` | `red_card` only: a card code we have not verified (known: FotMob `Yellow`/`Red`/`YellowRed`; PL `Y`/`R`) |
 
 FotMob reports explicit zeros (`0/0`) for players who appeared and made no passes, so a stored `0` is a real source zero.
 
@@ -92,3 +93,24 @@ Other conventions:
 - `position` is the player's position group from FotMob's `usualPlayingPositionId` (GK/DEF/MID/FWD). FotMob's per-match slot codes aren't decoded yet.
 - `subbed_on_minute` and `subbed_off_minute` are the source's minute. For stoppage-time subs FotMob reports 90.
 - Matches whose stats aren't published yet (finished but no `playerStats`) are **not cached**. They're logged as `incomplete` and retried on the next run.
+
+## Current state (as of 2026-09-22 build)
+
+| season | fixtures | finished | fetched | player_match rows | appeared |
+|---|---|---|---|---|---|
+| 2024-25 | 380 | 380 | 380 | 15,188 | 11,567 |
+| 2025-26 | 380 | 380 | 380 | 15,189 | 11,492 |
+| 2026-27 | 380 | 50 | 50 | 1,999 | 1,538 |
+
+Cross-check (24 matches, 8 per season): 718/718 comparable player rows have exact passes_attempted matches, with 0 disagreements > 3. Every team-match's summed player passes equals FotMob's own team pass total (1,620/1,620). Details are in `reports/data_quality.md`.
+
+## Open issues
+
+1. **PrizePicks settlement provider not confirmed.** Both feeds here are Opta. If PrizePicks settles soccer on Sportradar or Genius, their pass counts can differ from Opta.
+2. **Sofascore and FBref not usable from the build environment** (403 / Cloudflare). If an independent (non-Opta) cross-check is wanted, re-probe Sofascore from a residential connection before building an adapter.
+3. **FotMob is an unofficial, undocumented API.** Endpoints and fields can change without notice, and its terms of use don't grant scraping rights. Keep request volume low (3 s spacing, cache-first) and use it for personal research only. The parser fails closed if the response shape changes.
+4. **The PL feed omits Opta player IDs for some 2024-25 fixtures and drops zero-valued stats.** The cross-check handles this with a name fallback and `null_in_one` outcomes. Two name variants (`Gabriel` / `Gabriel Magalhães`, `Hwang Hee-Chan` / `Hee-Chan Hwang`) stay unmatched on purpose.
+5. **Minutes differ by 1 on 2/727 cross-checked rows** (stoppage-time rounding). Passes agree on those rows.
+6. **378 player-matches have minutes > 0 but 0 passes.** Almost all are late subs. The two 30-minute cases (Nathan Collins 2025-26 v Aston Villa, Darwin Núñez 2024-25 v Man Utd) were checked against the official PL feed, which also shows no passes (6 and 3 touches).
+7. **5 team-matches are under 200 passes** (low 168, Burnley 2025-26). They match the source team totals, so they're recorded as real rather than treated as errors.
+8. `position` is a coarse group (GK/DEF/MID/FWD) from the player's usual position, not the in-match slot.
