@@ -69,6 +69,14 @@ def score(df: pd.DataFrame, meta: dict) -> list:
     return rows
 
 
+def score_model_only(df: pd.DataFrame, meta: dict) -> list:
+    err = df["mu"] - df["passes"]
+    r = _model_size(df, meta)
+    return [len(df), float(np.mean(np.abs(err))), float(np.sqrt(np.mean(err ** 2))), float(np.mean(err)),
+            float(dist.log_loss(df["passes"], df["mu"], r).mean()),
+            float(dist.crps(df["passes"].to_numpy(), df["mu"].to_numpy(), r).mean())]
+
+
 def breakdown(df: pd.DataFrame, by: str) -> list:
     out = []
     for k, g in df.groupby(by):
@@ -128,31 +136,33 @@ def diagnose(row, beta: dict, r) -> str:
 
 
 def volume_flag_section(con) -> list:
-    """Teams whose last 5 matches deviate > 2 SE from their earlier season volume, at every block cutoff."""
+    """Volume-shift flags at every walk-forward block cutoff (model/flags.py rule)."""
     from .backtest import WalkForward, fixture_teams
     from .data import load_appearances
-    from .team import volume_shift_flags
+    from .flags import volume_shift_flags
+    from .team import volume_shift_flags as se_flags
     app = load_appearances(con)
     wf = WalkForward(app, fixture_teams(con))
-    events = []
+    events, se_events = [], 0
     for season in (*TRAIN_SEASONS, HOLDOUT_SEASON):
         for b in wf.blocks(season):
-            f = volume_shift_flags(wf.history(b), season)
+            h = wf.history(b)
+            f = volume_shift_flags(h, season)
+            se_events += len(se_flags(h, season))
             if len(f):
                 events.append(f)
     out = ["### Volume-shift flags (possible manager / style change — flagged for manual review, NOT modelled)", "",
-           "Rule: at a block cutoff, a team with ≥ 10 matches this season is flagged when the mean of its last 5 "
-           "matches differs from its earlier-season mean by more than 2 standard errors "
-           "(SE = SD of earlier matches / √5).", ""]
+           "Rule: at each block cutoff, a team with ≥ 10 matches this season is flagged when the mean of its last 5 "
+           "matches deviates from its earlier-season mean by more than 2 standard deviations of its earlier "
+           f"matches. (A looser standard-error rule, SD/√5, produced {se_events} flags and was too noisy to review.)", ""]
     if not events:
-        return out + ["No flags.", ""]
+        return out + ["No team was flagged at any cutoff in 2024-25, 2025-26 or 2026-27 so far.", ""]
     ev = pd.concat(events, ignore_index=True).sort_values(["season", "team", "as_of"])
-    rows = []
-    for _, r in ev.iterrows():
-        rows.append([r["season"], r["team"], str(pd.Timestamp(r["as_of"]).date()), int(r["n_matches"]),
-                     float(r["earlier_mean"]), float(r["last5_mean"]), float(r["z"])])
-    out += [f"Every flagged cutoff is listed. {len(ev)} team-cutoff flags across {ev.groupby(['season', 'team']).ngroups} team-seasons:", "",
-            _t(["season", "team", "as of (cutoff)", "matches", "earlier mean", "last-5 mean", "z"], rows), ""]
+    rows = [[r["season"], r["team"], str(pd.Timestamp(r["as_of"]).date()), int(r["n_matches"]), float(r["earlier_mean"]),
+             float(r["earlier_sd"]), float(r["last5_mean"]), float(r["sd_units"])] for _, r in ev.iterrows()]
+    out += [f"{len(ev)} flagged cutoffs across {ev.groupby(['season', 'team']).ngroups} team-seasons:", "",
+            _t(["season", "team", "as of (cutoff)", "matches", "earlier mean", "earlier SD", "last-5 mean",
+                "deviation (SD)"], rows), ""]
     return out
 
 
@@ -229,10 +239,14 @@ def build(con) -> str:
                            ("Subs (came off the bench)", df[~df["started"]]),
                            ("Starters < 60 min", df[df["started"] & ~df["primary"]])):
             c = comparable(sub)
+            allm = sub[sub["mu"].notna() & (sub["mu"] > 0)]
+            m_all = score_model_only(allm, meta)
             out += [f"### {label}", "",
                     f"Rows: {len(sub)}; projectable by model: {int(sub['mu'].notna().sum())}; "
-                    f"comparable (model and all three baselines defined and > 0): {len(c)}.", "",
-                    _t(["method", "n", "MAE", "RMSE", "bias", "NB log-loss", "CRPS"], score(c, meta)), ""]
+                    f"comparable (model and all three baselines defined and > 0): {len(c)}. Baselines are undefined "
+                    "for a player's first appearance of a season (season-to-date) or first appearance overall.", "",
+                    _t(["method", "n", "MAE", "RMSE", "bias", "NB log-loss", "CRPS"],
+                       score(c, meta) + [["Model, all projectable rows", *m_all]]), ""]
         return out
 
     L += section("3. Walk-forward results (training seasons, oracle minutes)", train)

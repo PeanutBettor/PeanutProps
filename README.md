@@ -110,6 +110,7 @@ With `beta_role = 1` this is exactly team passes × player's on-pitch share × m
 | Team volume | `model/team.py` | `exp(a_team + d_opponent ± eta)`: recency-weighted team level, opponent passes-allowed factor, and home effect. Shrunk toward the previous season. Promoted teams use the relegated teams' average, with extra shrinkage. Also flags teams whose last-5 volume shifts by more than 2 SE (flag only). |
 | Player share | `model/share.py` | Empirical-Bayes: recent share → player's long-term share at this team → team role average → league role average. Minutes-weighted; <20-min appearances get a reduced weight. A transfer resets to the new team's role prior. |
 | Distribution | `model/dist.py` | Negative binomial vs Poisson; dispersion per position group if validation supports it. Mean, median, p10/p90, P(over X.5). |
+| Volume-shift flags | `model/flags.py` | Last-5 mean more than 2 SD from the earlier-season mean. Flag only; not used in projections. |
 | Walk-forward / tuning / holdout | `model/backtest.py` | Chronological match-week blocks. Tuning uses 2024-25 + 2025-26 only; `tune()` refuses the holdout season. The holdout is scored with frozen params, and every scoring is logged in `models/holdout_log.json`. |
 
 | Task | Command |
@@ -117,7 +118,9 @@ With `beta_role = 1` this is exactly team passes × player's on-pitch share × m
 | Tune on 2024-25 + 2025-26 (walk-forward) → `models/params.json` | `python -m peanut_soccer tune` |
 | Score the 2026-27 holdout with the frozen params | `python -m peanut_soccer holdout` |
 | Validation report → `reports/model_validation.md` | `python -m peanut_soccer validate-report` |
-| Project one player-match (minutes are an input) | `python -m peanut_soccer project --match-id 5795460 --player-id 1195281 --minutes 90 --lines 40.5 50.5` |
+| Project one player-match (minutes are an input) | `python -m peanut_soccer project --match-id 5795472 --player-id 1195281 --minutes 90 --lines 40.5 50.5` |
+
+Results are in `reports/model_validation.md`. With oracle minutes, on the 2026-27 holdout (starters with 60+ minutes, 814 rows where all baselines exist), the model's MAE is 9.18 vs 11.37–12.95 for the baselines, and its log-loss is 3.765 vs 3.958–4.096. It beats all three baselines on both.
 
 Every projection records the `model_version` (hash of params + projection code) and the `data_snapshot` time. `project` writes to the `projections` table; backtests write to `model_backtest`. `holdout` and `project` refuse to run if the projection code changed after tuning (the version hash wouldn't match).
 
@@ -142,3 +145,13 @@ Cross-check (24 matches, 8 per season): 718/718 comparable player rows have exac
 6. **378 player-matches have minutes > 0 but 0 passes.** Almost all are late subs. The two 30-minute cases (Nathan Collins 2025-26 v Aston Villa, Darwin Núñez 2024-25 v Man Utd) were checked against the official PL feed, which also shows no passes (6 and 3 touches).
 7. **5 team-matches are under 200 passes** (low 168, Burnley 2025-26). They match the source team totals, so they're recorded as real rather than treated as errors.
 8. `position` is a coarse group (GK/DEF/MID/FWD) from the player's usual position, not the in-match slot.
+
+### Model open issues (prompt 2)
+
+1. **Oracle minutes.** Every backtest number uses actual minutes. Real-world error will be larger until the minutes model (prompt 3) is built.
+2. **Small holdout.** 2026-27 has 50 matches (5 match weeks, 1,048 primary rows), so the holdout numbers have wide error bars. It's also early-season, where team ratings lean hardest on priors (holdout team MAE 72.6 vs 63.3 walk-forward).
+3. **Subs.** The model under-projects substitutes (bias about −1.3 to −1.7 passes), and on the training seasons its log-loss for subs is slightly worse than the last-10 baseline. Sub passes depend on game state, which isn't modelled.
+4. **Parameter edges.** `short_weight` sits at 0.05, the smallest allowed value: validation wanted less weight on <20-minute appearances, but the spec requires they count. `k_league` = 100 is on a flat part of the curve, so team-specific role averages add almost nothing over the league role average.
+5. **Team passes during a player's minutes are approximated** as team total × minutes/90, since per-minute team passes aren't in the data.
+6. **Two first-pass tuning runs were discarded** (a crash, then a shrinkage flaw found by hand: long- and short-term layers double-counted appearances). All tuning used training seasons only; the holdout was scored once, after params were committed (`models/holdout_log.json`).
+

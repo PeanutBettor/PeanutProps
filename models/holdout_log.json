@@ -1,0 +1,35 @@
+[
+  {
+    "model_version": "00a8ed082820",
+    "scored_at": "2026-09-23T00:18:04+00:00",
+    "params": {
+      "team": {
+        "decay": 0.95,
+        "k_prior": 4,
+        "promoted_mult": 4
+      },
+      "share": {
+        "decay": 0.85,
+        "k_long": 1,
+        "k_role": 2,
+        "k_league": 100,
+        "short_weight": 0.05,
+        "beta": {
+          "GK": -0.25,
+          "DEF": 1.25,
+          "MID": 1.0,
+          "FWD": 0.75
+        }
+      },
+      "dist": {
+        "family": "nbinom",
+        "size": {
+          "GK": 32.80466230987651,
+          "DEF": 11.286880180008717,
+          "MID": 12.886984913505932,
+          "FWD": 12.65977506308769
+        }
+      }
+    }
+  }
+]
