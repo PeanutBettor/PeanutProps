@@ -1,0 +1,86 @@
+{
+  "model_version": "00a8ed082820",
+  "tuned_at": "2026-09-23T00:17:29+00:00",
+  "data_snapshot": "2026-09-22 21:45:30",
+  "train_seasons": [
+    "2024-25",
+    "2025-26"
+  ],
+  "params": {
+    "team": {
+      "decay": 0.95,
+      "k_prior": 4,
+      "promoted_mult": 4
+    },
+    "share": {
+      "decay": 0.85,
+      "k_long": 1,
+      "k_role": 2,
+      "k_league": 100,
+      "short_weight": 0.05,
+      "beta": {
+        "GK": -0.25,
+        "DEF": 1.25,
+        "MID": 1.0,
+        "FWD": 0.75
+      }
+    },
+    "dist": {
+      "family": "nbinom",
+      "size": {
+        "GK": 32.80466230987651,
+        "DEF": 11.286880180008717,
+        "MID": 12.886984913505932,
+        "FWD": 12.65977506308769
+      }
+    }
+  },
+  "baseline_nb_size": {
+    "base_std": 9.469742358291857,
+    "base_last5": 8.964700565864934,
+    "base_last10": 9.833154031427885
+  },
+  "distribution_selection": [
+    {
+      "subset": "primary",
+      "family": "poisson",
+      "logloss": 4.373974450156714,
+      "n": 14648
+    },
+    {
+      "subset": "primary",
+      "family": "nb_global",
+      "logloss": 3.762186854688781,
+      "n": 14648
+    },
+    {
+      "subset": "primary",
+      "family": "nb_by_role",
+      "logloss": 3.756289353337408,
+      "n": 14648
+    },
+    {
+      "subset": "all",
+      "family": "poisson",
+      "logloss": 4.058033397531538,
+      "n": 21523
+    },
+    {
+      "subset": "all",
+      "family": "nb_global",
+      "logloss": 3.5498820605906483,
+      "n": 21523
+    },
+    {
+      "subset": "all",
+      "family": "nb_by_role",
+      "logloss": 3.5452124747432707,
+      "n": 21523
+    }
+  ],
+  "train_objective": {
+    "primary_nb_logloss": 3.761223873131768,
+    "primary_mae": 8.985836849072307,
+    "team_mae": 63.33942178071357
+  }
+}

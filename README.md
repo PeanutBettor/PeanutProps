@@ -1,6 +1,8 @@
-# PeanutProps Soccer — Passes Attempted: Data Layer
+# PeanutProps Soccer — Passes Attempted
 
-Prompt 1 of 3: the raw data layer only. There's no projection math, no minutes model, and no odds or PrizePicks lines here.
+- **Prompt 1 (data layer):** FotMob ingestion, PL cross-check, DuckDB, data quality report.
+- **Prompt 2 (projection model):** team volume × player share × minutes, plus a count distribution. See [Projection model](#projection-model-prompt-2).
+- Not built yet: minutes model (prompt 3). There are no odds, PrizePicks lines or EV anywhere in this repo.
 
 Scope: English Premier League, seasons **2024-25**, **2025-26** (complete) and **2026-27** (in progress).
 
@@ -93,6 +95,31 @@ Other conventions:
 - `position` is the player's position group from FotMob's `usualPlayingPositionId` (GK/DEF/MID/FWD). FotMob's per-match slot codes aren't decoded yet.
 - `subbed_on_minute` and `subbed_off_minute` are the source's minute. For stoppage-time subs FotMob reports 90.
 - Matches whose stats aren't published yet (finished but no `playerStats`) are **not cached**. They're logged as `incomplete` and retried on the next run.
+
+## Projection model (prompt 2)
+
+```
+projected passes = share × REF × (team_passes_hat / REF) ^ beta_role × minutes / 90
+```
+
+With `beta_role = 1` this is exactly team passes × player's on-pitch share × minutes/90. `beta_role` lets a position's passes scale more or less than 1:1 with team volume, and it's chosen by validation. **Minutes are an input.** The backtest feeds actual minutes (oracle), so the reported errors are rate-model error only.
+
+| Piece | Code | What it does |
+|---|---|---|
+| Point-in-time | `model/data.py` | `History.at(cutoff)` holds only matches completed before the cutoff (kickoff + 3 h). Projection functions raise `LeakageError` if a target kicks off before the history cutoff. |
+| Team volume | `model/team.py` | `exp(a_team + d_opponent ± eta)`: recency-weighted team level, opponent passes-allowed factor, and home effect. Shrunk toward the previous season. Promoted teams use the relegated teams' average, with extra shrinkage. Also flags teams whose last-5 volume shifts by more than 2 SE (flag only). |
+| Player share | `model/share.py` | Empirical-Bayes: recent share → player's long-term share at this team → team role average → league role average. Minutes-weighted; <20-min appearances get a reduced weight. A transfer resets to the new team's role prior. |
+| Distribution | `model/dist.py` | Negative binomial vs Poisson; dispersion per position group if validation supports it. Mean, median, p10/p90, P(over X.5). |
+| Walk-forward / tuning / holdout | `model/backtest.py` | Chronological match-week blocks. Tuning uses 2024-25 + 2025-26 only; `tune()` refuses the holdout season. The holdout is scored with frozen params, and every scoring is logged in `models/holdout_log.json`. |
+
+| Task | Command |
+|---|---|
+| Tune on 2024-25 + 2025-26 (walk-forward) → `models/params.json` | `python -m peanut_soccer tune` |
+| Score the 2026-27 holdout with the frozen params | `python -m peanut_soccer holdout` |
+| Validation report → `reports/model_validation.md` | `python -m peanut_soccer validate-report` |
+| Project one player-match (minutes are an input) | `python -m peanut_soccer project --match-id 5795460 --player-id 1195281 --minutes 90 --lines 40.5 50.5` |
+
+Every projection records the `model_version` (hash of params + projection code) and the `data_snapshot` time. `project` writes to the `projections` table; backtests write to `model_backtest`. `holdout` and `project` refuse to run if the projection code changed after tuning (the version hash wouldn't match).
 
 ## Current state (as of 2026-09-22 build)
 
